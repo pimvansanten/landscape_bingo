@@ -15,13 +15,14 @@ import geopandas as gpd
 import json
 
 LOC='Julianaweg123'#'Julianaweg123'
-
+INIT=False
 LOCATIONS= {'Julianaweg123':[52.0639501,5.115247]}
 #LOCATION = [51.822585, 3.904319] #ouddorp
 SETTINGS = {'loop':[250,15],
             'cycl':[1500,30],
             'hugo':[50,15],
-            'osca':[50,30]}
+            'osca':[50,30],
+            'hufi':[1500,15]}
 KIND='osca'
 SQUARE_SIZE = SETTINGS[KIND][0]
 NUM_OF_SQUARES = SETTINGS[KIND][1]
@@ -179,11 +180,16 @@ def find_filled_squares(squares_gdf, routes_gdf):
 def fill_unreachables(squares_gdf, kind):
     
     squares_gdf['unreach']=False
-    indices = {'loop':{(5.1171,52.0538):'Jumbo DC terrein',
-                       (5.135576, 52.051634):'Wayensedijk 14'},
-               'cycl':{},
-               'osca':{},
-               'hugo':{}}
+    locs = {'loop':{(5.1171,52.0538):'Jumbo DC terrein',
+                    (5.135576, 52.051634):'Wayensedijk 14'},
+            'osca':{(5.115780, 52.060129):'Gebouw Pagelaan'},
+            'hugo':{(5.115780, 52.060129):'Gebouw Pagelaan'}}
+    indices={}
+    for naam,_ in SETTINGS.items():
+        if naam in locs.keys():
+            indices[naam]=locs[naam]
+        else:
+            indices[naam]={}
     for punt in list(indices[kind].keys()):
         squares_gdf.loc[squares_gdf['geometry'].contains(Point(punt)),'unreach'] = True
         squares_gdf.loc[squares_gdf['geometry'].contains(Point(punt)),'filled'] = True
@@ -271,8 +277,10 @@ def plot_big_square(m, squares_gdf):
 
 #flow
 cent_x, cent_y = make_center(LOCATIONS[LOC])
-#squares_gdf = make_squares(SQUARE_SIZE, NUM_OF_SQUARES, cent_x, cent_y)
-squares_gdf=read_squares_from_file(KIND)
+if INIT:
+    squares_gdf = make_squares(SQUARE_SIZE, NUM_OF_SQUARES, cent_x, cent_y)
+else:
+    squares_gdf=read_squares_from_file(KIND)
 gdf_all_points, routes_dict, new_routes = load_routes(KIND)
 print('find filled squares')
 squares_gdf = find_filled_squares(squares_gdf,gdf_all_points)
