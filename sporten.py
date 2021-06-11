@@ -23,9 +23,18 @@ SETTINGS = {'loop':[250,15],
             'hugo':[50,15],
             'osca':[50,30],
             'hufi':[1500,15]}
-KIND='osca'
+KIND='cycl'
 SQUARE_SIZE = SETTINGS[KIND][0]
 NUM_OF_SQUARES = SETTINGS[KIND][1]
+
+gem = gpd.read_file('C:/Users/santpi01/Documents/pim/cbsgebiedsindelingen_2021_v1.gpkg' ,
+ layer='cbs_gemeente_2020_gegeneraliseerd')
+prov = gpd.read_file('C:/Users/santpi01/Documents/pim/cbsgebiedsindelingen_2021_v1.gpkg' ,
+ layer='cbs_provincie_2020_gegeneraliseerd')
+
+gem_utrecht=gem.loc[gem['geometry'].within(prov.loc[6,'geometry'])]
+gem_utrecht = gem_utrecht.set_crs(epsg=28992)
+gem_utrecht=gem_utrecht.to_crs(epsg=4326)
 
 def get_centroid(index, squares_gdf):
     
@@ -36,8 +45,8 @@ def get_centroid(index, squares_gdf):
 def make_center(location):
     jul_gdf = gpd.GeoDataFrame(geometry = gpd.points_from_xy([location[1]],[location[0]], crs = 'epsg:4326'))
     jul_gdf = jul_gdf.to_crs('epsg:28992')
-    jul_x = jul_gdf.loc[0].x
-    jul_y = jul_gdf.loc[0].y
+    jul_x = jul_gdf.loc[0].iloc[0].x
+    jul_y = jul_gdf.loc[0].iloc[0].y
     
     return jul_x, jul_y
 
@@ -181,7 +190,20 @@ def fill_unreachables(squares_gdf, kind):
     
     squares_gdf['unreach']=False
     locs = {'loop':{(5.1171,52.0538):'Jumbo DC terrein',
-                    (5.135576, 52.051634):'Wayensedijk 14'},
+                    (5.135576, 52.051634):'Wayensedijk 14',
+                    (5.130922, 52.047283):'Hippisch Centrum Groenraven',
+                    (5.135289, 52.047540):'Wayensedijk 19',
+                    (5.138958, 52.047052):'Wayensedijk 25',
+                    (5.150236, 52.045334):'Jongerius Houten',
+                    (5.124699, 52.047530):'Down Under',
+                    (5.088595, 52.057844):'JSV',
+                    (5.153508, 52.064869):'golfbaan1',
+                    (5.153948, 52.062890):'golfbaan2',
+                    (5.153578, 52.060727):'golfbaan3',  
+                    (5.157211, 52.062823):'golfbaan4',
+                    (5.124922, 52.042456):'Heemsteedseweg boomgaard',
+                    (5.121768, 52.040360):'Heemsteedseweg',
+                    (5.154185, 52.049624):'weiland oud wulfseweg'},
             'osca':{(5.115780, 52.060129):'Gebouw Pagelaan'},
             'hugo':{(5.115780, 52.060129):'Gebouw Pagelaan'}}
     indices={}
@@ -265,6 +287,17 @@ def plot_all_squares(m,squares_gdf):
             
     return m
 
+def plot_gem(m,gem):
+
+    for index,poly in gem_utrecht.iterrows():
+        folium.Polygon([(j,i) for i,j in [point for polygon in poly['geometry'] for point in polygon.exterior.coords[:-1]]],
+                        weight = 0.6,
+                        fill=False,
+                        color='green',
+                        tooltip=poly['statnaam']).add_to(m)
+    return m
+
+
 def plot_big_square(m, squares_gdf):
     
     big_square = cascaded_union(list(squares_gdf.loc[squares_gdf['big_square']==1]['geometry']))
@@ -286,12 +319,13 @@ print('find filled squares')
 squares_gdf = find_filled_squares(squares_gdf,gdf_all_points)
 squares_gdf = fill_unreachables(squares_gdf,KIND)
 squares_gdf = create_big_square(NUM_OF_SQUARES, squares_gdf)
-m = folium.Map(location=LOCATIONS[LOC])
+m = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
 m = plot_all_squares(m,squares_gdf)
 m=plot_routes(m,new_routes, routes_dict)
 m = plot_big_square(m,squares_gdf)
+m=plot_gem(m,gem_utrecht)
 m.save(f'squares_{KIND}_{LOC}.html')
-
+# m.save('testgemn.html')
 squares_gdf.to_feather(f'squares_gdf_{KIND}.feather')
 with open(f'routes_{KIND}.json', 'w') as f:
     json.dump(routes_dict, f)
