@@ -5,6 +5,7 @@ Created on Sun Jan 26 16:05:01 2020
 @author: santpi01
 """
 
+import sys
 import numpy as np
 import folium
 import gpxpy
@@ -13,24 +14,20 @@ from shapely.geometry import Polygon, Point
 from shapely.ops import cascaded_union
 import geopandas as gpd
 import json
+from config import *
 
-LOC='Julianaweg123'#'Julianaweg123'
-INIT=False
-LOCATIONS= {'Julianaweg123':[52.0639501,5.115247]}
-#LOCATION = [51.822585, 3.904319] #ouddorp
-SETTINGS = {'loop':[250,15],
-            'cycl':[1500,30],
-            'hugo':[50,15],
-            'osca':[50,30],
-            'hufi':[1500,15]}
-KIND='cycl'
+
+KIND = sys.argv[1]
+
 SQUARE_SIZE = SETTINGS[KIND][0]
 NUM_OF_SQUARES = SETTINGS[KIND][1]
 
-gem = gpd.read_file('C:/Users/santpi01/Documents/pim/cbsgebiedsindelingen_2021_v1.gpkg' ,
- layer='cbs_gemeente_2020_gegeneraliseerd')
-prov = gpd.read_file('C:/Users/santpi01/Documents/pim/cbsgebiedsindelingen_2021_v1.gpkg' ,
- layer='cbs_provincie_2020_gegeneraliseerd')
+gem = gpd.read_file(
+    SHAPE_FOLDER+'cbsgebiedsindelingen_2021_v1.gpkg',
+    layer='cbs_gemeente_2020_gegeneraliseerd')
+prov = gpd.read_file(
+    SHAPE_FOLDER+'cbsgebiedsindelingen_2021_v1.gpkg',
+    layer='cbs_provincie_2020_gegeneraliseerd')
 
 gem_utrecht=gem.loc[gem['geometry'].within(prov.loc[6,'geometry'])]
 gem_utrecht = gem_utrecht.set_crs(epsg=28992)
@@ -120,7 +117,7 @@ def load_routes(kind):
 #    routes_dict={}
     punt_shapes = []
     new_routes=[]
-    for root, dirs, files in os.walk(r'c:\Users\santpi01\Documents\pim\gpx'):
+    for root, dirs, files in os.walk(GPX_FOLDER):
        for name in files:
            if eval(condition):
                if name not in routes_dict.keys():
@@ -148,7 +145,12 @@ def load_routes(kind):
     return gdf_all_points, routes_dict, new_routes
 
 def plot_routes(m, routes, routes_dict):
-    kleuren = {'00':'blue','25':'lightseagreen','20':'olive','15':'red','03':'blue'}
+    kleuren = {
+        '00':'blue',
+        '25':'lightseagreen',
+        '20':'olive',
+        '15':'red',
+        '03':'blue'}
     
     for route in routes:
         folium.PolyLine(routes_dict[route]['punten'],
@@ -181,31 +183,15 @@ def find_filled_squares(squares_gdf, routes_gdf):
                 squares_gdf.at[index,'filled'] = True
                 squares_gdf.at[index,'new'] = True
                 #delete points in filled squares for speeding up process
-                routes_gdf=routes_gdf.drop(routes_gdf.loc[points_within].index)
+                routes_gdf=routes_gdf.drop(
+                    routes_gdf.loc[points_within].index)
     
     return squares_gdf
 
 
-def fill_unreachables(squares_gdf, kind):
+def fill_unreachables(squares_gdf, locs, kind):
     
     squares_gdf['unreach']=False
-    locs = {'loop':{(5.1171,52.0538):'Jumbo DC terrein',
-                    (5.135576, 52.051634):'Wayensedijk 14',
-                    (5.130922, 52.047283):'Hippisch Centrum Groenraven',
-                    (5.135289, 52.047540):'Wayensedijk 19',
-                    (5.138958, 52.047052):'Wayensedijk 25',
-                    (5.150236, 52.045334):'Jongerius Houten',
-                    (5.124699, 52.047530):'Down Under',
-                    (5.088595, 52.057844):'JSV',
-                    (5.153508, 52.064869):'golfbaan1',
-                    (5.153948, 52.062890):'golfbaan2',
-                    (5.153578, 52.060727):'golfbaan3',  
-                    (5.157211, 52.062823):'golfbaan4',
-                    (5.124922, 52.042456):'Heemsteedseweg boomgaard',
-                    (5.121768, 52.040360):'Heemsteedseweg',
-                    (5.154185, 52.049624):'weiland oud wulfseweg'},
-            'osca':{(5.115780, 52.060129):'Gebouw Pagelaan'},
-            'hugo':{(5.115780, 52.060129):'Gebouw Pagelaan'}}
     indices={}
     for naam,_ in SETTINGS.items():
         if naam in locs.keys():
@@ -213,15 +199,23 @@ def fill_unreachables(squares_gdf, kind):
         else:
             indices[naam]={}
     for punt in list(indices[kind].keys()):
-        squares_gdf.loc[squares_gdf['geometry'].contains(Point(punt)),'unreach'] = True
-        squares_gdf.loc[squares_gdf['geometry'].contains(Point(punt)),'filled'] = True
+        squares_gdf.loc[
+            squares_gdf['geometry'].contains(Point(punt)),
+            'unreach'] = True
+        squares_gdf.loc[
+            squares_gdf['geometry'].contains(Point(punt)),
+            'filled'] = True
     
     return squares_gdf
 
 def create_big_square(sq_num, squares_gdf):
     cols = rows = int(2*NUM_OF_SQUARES)
     big_square = np.zeros((rows,cols))
-    filled_squares=np.flipud(squares_gdf['filled'].values.astype(int).reshape(rows,cols).T)
+    filled_squares=np.flipud(
+        squares_gdf['filled'].values\
+            .astype(int)\
+                .reshape(rows,cols)\
+                    .T)
     
     n=2
     cel={}
@@ -317,7 +311,7 @@ else:
 gdf_all_points, routes_dict, new_routes = load_routes(KIND)
 print('find filled squares')
 squares_gdf = find_filled_squares(squares_gdf,gdf_all_points)
-squares_gdf = fill_unreachables(squares_gdf,KIND)
+squares_gdf = fill_unreachables(squares_gdf, UNREACHABLES, KIND)
 squares_gdf = create_big_square(NUM_OF_SQUARES, squares_gdf)
 m = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
 m = plot_all_squares(m,squares_gdf)
