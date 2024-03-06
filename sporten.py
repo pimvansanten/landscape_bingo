@@ -10,28 +10,29 @@ import numpy as np
 import folium
 import gpxpy
 import os
-from shapely.geometry import Polygon, Point
+from shapely.geometry import Polygon, Point, MultiPolygon
 from shapely.ops import cascaded_union
+from shapely import convex_hull
 import geopandas as gpd
 import json
 from config import *
-
+import copy
 
 KIND = sys.argv[1]
 
 SQUARE_SIZE = SETTINGS[KIND][0]
 NUM_OF_SQUARES = SETTINGS[KIND][1]
 
-gem = gpd.read_file(
-    SHAPE_FOLDER+'cbsgebiedsindelingen_2021_v1.gpkg',
-    layer='cbs_gemeente_2020_gegeneraliseerd')
-prov = gpd.read_file(
-    SHAPE_FOLDER+'cbsgebiedsindelingen_2021_v1.gpkg',
-    layer='cbs_provincie_2020_gegeneraliseerd')
+# gem = gpd.read_file(
+#     SHAPE_FOLDER+'cbsgebiedsindelingen_2021_v1.gpkg',
+#     layer='cbs_gemeente_2020_gegeneraliseerd')
+# prov = gpd.read_file(
+#     SHAPE_FOLDER+'cbsgebiedsindelingen_2021_v1.gpkg',
+#     layer='cbs_provincie_2020_gegeneraliseerd')
 
-gem_utrecht=gem.loc[gem['geometry'].within(prov.loc[6,'geometry'])]
-gem_utrecht = gem_utrecht.set_crs(epsg=28992)
-gem_utrecht=gem_utrecht.to_crs(epsg=4326)
+# gem_utrecht=gem.loc[gem['geometry'].within(prov.loc[6,'geometry'])]
+# gem_utrecht = gem_utrecht.set_crs(epsg=28992)
+# gem_utrecht=gem_utrecht.to_crs(epsg=4326)
 
 def get_centroid(index, squares_gdf):
     
@@ -89,7 +90,7 @@ def read_squares_from_file(KIND):
     squares_gdf = gpd.read_feather(f'squares_gdf_{KIND}.feather')
     return squares_gdf
 
-def load_routes(kind):
+def load_routes(kind, INIT):
     """
     load recorded strava routes
     
@@ -106,13 +107,16 @@ def load_routes(kind):
     else:
         condition = f"name.split('.')[0][-2:] =={kind}"
     
-    try:
-        with open(f'routes_{KIND}.json', 'r') as myfile:
-            data=myfile.read()
-        # parse file
-        routes_dict = json.loads(data)
-    except:
+    if INIT:
         routes_dict={}
+    else:
+        try:
+            with open(f'routes_{KIND}.json', 'r') as myfile:
+                data=myfile.read()
+            # parse file
+            routes_dict = json.loads(data)
+        except:
+            routes_dict={}
         
 #    routes_dict={}
     punt_shapes = []
@@ -145,16 +149,10 @@ def load_routes(kind):
     return gdf_all_points, routes_dict, new_routes
 
 def plot_routes(m, routes, routes_dict):
-    kleuren = {
-        '00':'blue',
-        '25':'lightseagreen',
-        '20':'olive',
-        '15':'red',
-        '03':'blue'}
     
     for route in routes:
         folium.PolyLine(routes_dict[route]['punten'],
-                        color=kleuren[routes_dict[route]['circle']],
+                        color='blue',
                         tooltip = routes_dict[route]['date'],
                         ).add_to(m)
 
@@ -283,12 +281,7 @@ def plot_all_squares(m,squares_gdf):
 
 def plot_gem(m,gem):
 
-    for index,poly in gem_utrecht.iterrows():
-        folium.Polygon([(j,i) for i,j in [point for polygon in poly['geometry'] for point in polygon.exterior.coords[:-1]]],
-                        weight = 0.6,
-                        fill=False,
-                        color='green',
-                        tooltip=poly['statnaam']).add_to(m)
+    4326
     return m
 
 
@@ -302,26 +295,59 @@ def plot_big_square(m, squares_gdf):
     return m
 
 
+def plot_goal(m):
+
+    goal_rect = convex_hull(MultiPolygon(list(squares_gdf.loc[[947, 3227, 3194, 914], 'geometry'])))
+    folium.Polygon([(j,i) for i,j in list(goal_rect.exterior.coords)],
+                weight = 1,
+                color = '#00ff00',
+                ).add_to(m)
+    return m
+    
+
+
 #flow
 cent_x, cent_y = make_center(LOCATIONS[LOC])
 if INIT:
     squares_gdf = make_squares(SQUARE_SIZE, NUM_OF_SQUARES, cent_x, cent_y)
 else:
     squares_gdf=read_squares_from_file(KIND)
-gdf_all_points, routes_dict, new_routes = load_routes(KIND)
+gdf_all_points, routes_dict, new_routes = load_routes(KIND, INIT)
 print('find filled squares')
 squares_gdf = find_filled_squares(squares_gdf,gdf_all_points)
 squares_gdf = fill_unreachables(squares_gdf, UNREACHABLES, KIND)
 squares_gdf = create_big_square(NUM_OF_SQUARES, squares_gdf)
 m = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
 m = plot_all_squares(m,squares_gdf)
-m=plot_routes(m,new_routes, routes_dict)
+m = plot_routes(m,new_routes, routes_dict)
+
+m_all = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
+m_all = plot_all_squares(m_all,squares_gdf)
+m_all = plot_routes(m_all,routes_dict.keys(), routes_dict)
 m = plot_big_square(m,squares_gdf)
-m=plot_gem(m,gem_utrecht)
+# m=plot_gem(m,gem_utrecht)
+m = plot_goal(m)
+
+folium.raster_layers.WmsTileLayer(
+    url="https://service.pdok.nl/cbs/gebiedsindelingen/2023/wms/v1_0?request=GetCapabilities&service=WMS",
+    name="test",
+    fmt="image/png",
+    layers="cbs_gemeente_2023_gegeneraliseerd",
+    transparent=True,
+    overlay=True,
+    control=True,
+).add_to(m)
+
 m.save(f'squares_{KIND}_{LOC}.html')
+m_all.save(f'squares_{KIND}_{LOC}_all.html')
 # m.save('testgemn.html')
 squares_gdf.to_feather(f'squares_gdf_{KIND}.feather')
 with open(f'routes_{KIND}.json', 'w') as f:
     json.dump(routes_dict, f)
+print('Done')
 
 
+many_squares = make_squares(SQUARE_SIZE, 150, cent_x, cent_y)
+m_ms = folium.Map(location=LOCATIONS[LOC], zoom_start=9)
+m_ms = plot_all_squares(m_ms,many_squares)
+m_ms.save(f'squares_{LOC}.html')
