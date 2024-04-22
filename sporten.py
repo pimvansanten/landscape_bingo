@@ -18,7 +18,10 @@ import json
 from config import *
 import copy
 
+
 KIND = sys.argv[1]
+if KIND.endswith('json'):
+    KIND = "cycl"
 
 SQUARE_SIZE = SETTINGS[KIND][0]
 NUM_OF_SQUARES = SETTINGS[KIND][1]
@@ -48,23 +51,21 @@ def make_center(location):
     
     return jul_x, jul_y
 
-def plot_circles(m,radii, location):
-    """plot circles on folium map
+def get_nl():
+    gpx_file = open(GPX_FOLDER+"NL-omtrek.gpx", 'r')
+    gpx = gpxpy.parse(gpx_file)
+    gpx_file.close()
+    punt_shapes = []
     
-    m: Folium Map object
-    radii: list of int
-        cricle radius in m   
-    """
-    #,15000,20000, 25000, 30000]:
-    for r in radii:
-        folium.Circle(
-            radius=r,
-            location=location,
-            color='black',
-            fill=False,
-        ).add_to(m)
-        
-    return m
+    for track in gpx.tracks:
+        for segment in track.segments:
+            
+            punt_shapes = punt_shapes + [
+                Point(point.longitude, point.latitude)
+                for point in segment.points]
+    nl = Polygon(punt_shapes)
+
+    return nl
 
 def make_squares(size, num, x_center, y_center):
     
@@ -102,33 +103,28 @@ def load_routes(kind, INIT):
         '##': double digit integer with leading zero
               for all routes to that circle
     """
-    if len(kind)==4:
-        condition =f"name.split('.')[0][:4] == '{kind}'"
-    else:
-        condition = f"name.split('.')[0][-2:] =={kind}"
+
+    condition =f"name.split('.')[0][:4] == '{kind}'"
     
     if INIT:
         routes_dict={}
     else:
-        try:
-            with open(f'routes_{KIND}.json', 'r') as myfile:
-                data=myfile.read()
-            # parse file
-            routes_dict = json.loads(data)
-        except:
-            routes_dict={}
+        with open(f'routes_{KIND}.json', 'r') as myfile:
+            data=myfile.read()
+        # parse file
+        routes_dict = json.loads(data)
         
-#    routes_dict={}
     punt_shapes = []
     new_routes=[]
-    for root, dirs, files in os.walk(GPX_FOLDER):
+    for root, _, files in os.walk(GPX_FOLDER):
        for name in files:
            if eval(condition):
                if name not in routes_dict.keys():
                    print(name)
                    new_routes.append(name)
-                   soort,date,dist = name.split('_')
-                   dist = dist[:2]
+                   delen = name.split('_')
+                   soort = delen[0]
+                   date = delen[1]
                    gpx_file = open(os.path.join(root, name), 'r')
                    gpx = gpxpy.parse(gpx_file)
                    gpx_file.close()
@@ -142,7 +138,6 @@ def load_routes(kind, INIT):
                    routes_dict[name]['punten'] = punten
                    routes_dict[name]['soort'] = soort
                    routes_dict[name]['date'] = date
-                   routes_dict[name]['circle'] = dist
 
     gdf_all_points = gpd.GeoDataFrame(geometry = punt_shapes)
     
@@ -183,6 +178,20 @@ def find_filled_squares(squares_gdf, routes_gdf):
                 #delete points in filled squares for speeding up process
                 routes_gdf=routes_gdf.drop(
                     routes_gdf.loc[points_within].index)
+    
+    return squares_gdf
+
+
+def find_filled_squares2(squares_gdf, points_gdf):
+    
+    squares_gdf['new'] = False
+    filled_squares_all = squares_gdf[~squares_gdf["filled"]].sjoin(
+        gdf_all_points, how="left").dropna(subset="index_right")
+    filled_squares = filled_squares_all.groupby(
+        filled_squares_all.index).first()
+    
+    squares_gdf.loc[filled_squares.index, 'filled'] = True
+    squares_gdf.loc[filled_squares.index, 'new'] = True
     
     return squares_gdf
 
@@ -309,14 +318,18 @@ def plot_goal(m):
 #flow
 cent_x, cent_y = make_center(LOCATIONS[LOC])
 if INIT:
-    squares_gdf = make_squares(SQUARE_SIZE, NUM_OF_SQUARES, cent_x, cent_y)
+    squares_gdf = make_squares(
+        SQUARE_SIZE, NUM_OF_SQUARES, cent_x, cent_y)
+    nl = get_nl()
+    squares_gdf = squares_gdf[
+        squares_gdf["geometry"].within(nl)].copy()
 else:
     squares_gdf=read_squares_from_file(KIND)
 gdf_all_points, routes_dict, new_routes = load_routes(KIND, INIT)
 print('find filled squares')
-squares_gdf = find_filled_squares(squares_gdf,gdf_all_points)
+squares_gdf = find_filled_squares2(squares_gdf,gdf_all_points)
 squares_gdf = fill_unreachables(squares_gdf, UNREACHABLES, KIND)
-squares_gdf = create_big_square(NUM_OF_SQUARES, squares_gdf)
+# squares_gdf = create_big_square(NUM_OF_SQUARES, squares_gdf)
 m = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
 m = plot_all_squares(m,squares_gdf)
 m = plot_routes(m,new_routes, routes_dict)
@@ -324,9 +337,9 @@ m = plot_routes(m,new_routes, routes_dict)
 m_all = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
 m_all = plot_all_squares(m_all,squares_gdf)
 m_all = plot_routes(m_all,routes_dict.keys(), routes_dict)
-m = plot_big_square(m,squares_gdf)
+# m = plot_big_square(m,squares_gdf)
 # m=plot_gem(m,gem_utrecht)
-m = plot_goal(m)
+# m = plot_goal(m)
 
 folium.raster_layers.WmsTileLayer(
     url="https://service.pdok.nl/cbs/gebiedsindelingen/2023/wms/v1_0?request=GetCapabilities&service=WMS",
@@ -345,9 +358,3 @@ squares_gdf.to_feather(f'squares_gdf_{KIND}.feather')
 with open(f'routes_{KIND}.json', 'w') as f:
     json.dump(routes_dict, f)
 print('Done')
-
-
-many_squares = make_squares(SQUARE_SIZE, 150, cent_x, cent_y)
-m_ms = folium.Map(location=LOCATIONS[LOC], zoom_start=9)
-m_ms = plot_all_squares(m_ms,many_squares)
-m_ms.save(f'squares_{LOC}.html')
