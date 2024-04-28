@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 Created on Sun Jan 26 16:05:01 2020
@@ -25,6 +26,7 @@ if KIND.endswith('json'):
 
 SQUARE_SIZE = SETTINGS[KIND][0]
 NUM_OF_SQUARES = SETTINGS[KIND][1]
+CENT_SQUARE = 45150
 
 # gem = gpd.read_file(
 #     SHAPE_FOLDER+'cbsgebiedsindelingen_2021_v1.gpkg',
@@ -44,7 +46,11 @@ def get_centroid(index, squares_gdf):
     return point.x,point.y
     
 def make_center(location):
-    jul_gdf = gpd.GeoDataFrame(geometry = gpd.points_from_xy([location[1]],[location[0]], crs = 'epsg:4326'))
+    jul_gdf = gpd.GeoDataFrame(
+        geometry = gpd.points_from_xy(
+            [location[1]],[location[0]],
+            crs = 'epsg:4326')
+        )
     jul_gdf = jul_gdf.to_crs('epsg:28992')
     jul_x = jul_gdf.loc[0].iloc[0].x
     jul_y = jul_gdf.loc[0].iloc[0].y
@@ -153,34 +159,6 @@ def plot_routes(m, routes, routes_dict):
 
     return m
 
-def find_filled_squares(squares_gdf, routes_gdf):
-    
-    nos=NUM_OF_SQUARES
-    #create indices starting at middle column and then working sideways
-    #this helps losing many points fast
-    inds = np.concatenate(
-            [k+np.arange(2*nos) for k in 
-             [j*2*nos for sublist in 
-              [[nos-i,nos+i] for i in range(nos)] 
-              for j in sublist
-              ][1:]
-             ]
-             ) 
-    
-    squares_gdf['new']=False
-    for index in inds:
-        square = squares_gdf.loc[index]
-        if not square['filled']:
-            points_within=routes_gdf.within(square['geometry'])
-            if any(points_within):
-                squares_gdf.at[index,'filled'] = True
-                squares_gdf.at[index,'new'] = True
-                #delete points in filled squares for speeding up process
-                routes_gdf=routes_gdf.drop(
-                    routes_gdf.loc[points_within].index)
-    
-    return squares_gdf
-
 
 def find_filled_squares2(squares_gdf, points_gdf):
     
@@ -248,7 +226,49 @@ def create_big_square(sq_num, squares_gdf):
     squares_gdf['big_square'] = big_square_array
     print(f'je vierkant is nu {n}x{n} groot')
     return squares_gdf
-   
+
+
+def create_big_square2(squares_gdf):
+    i = [CENT_SQUARE]
+    j = 1
+    nsq = 2*NUM_OF_SQUARES
+    while squares_gdf.loc[i, "filled"].all():
+        j+=2
+        k = list(range(-j//2+1,j//2+1))
+        m = [CENT_SQUARE+nsq*l for l in k]
+        i = [q+p for p in m for q in k]
+    # j is now 1 g=bigger than a potential filled big square
+    # find this
+    big_square = squares_gdf.loc[i, "filled"].copy()
+    missing = big_square.loc[~big_square].index
+    #indices of all sides
+    w = np.arange(21) + big_square.index.min()
+    e = big_square.index.max() - np.arange(21)
+    s = np.arange(w.min(), e.min()+nsq, nsq)
+    n = np.arange(w.max(), e.max()+nsq, nsq)
+    # which sides have missing squares
+    mis_sides = []
+    for cd in ["w", "e","n", "s"]:
+        exec(f"{cd}pr = any([i in {cd} for i in missing])")
+        exec(f"if {cd}pr: mis_sides.extend(list({cd}))")
+    if (wpr and epr) or (npr and spr):
+        # on both sides so no even number possible
+        bss = j-2
+        i = [q for q in i if q not in np.concatenate([w, e, n, s])]
+    else:
+        bss = j-1
+        i = [q for q in i if q not in mis_sides]
+        if len(missing)==1:
+            if wpr or epr:
+                i = [q for q in i if q not in s]
+            if npr or spr:
+                i = [q for q in i if q not in e]
+    squares_gdf['big_square'] = False
+    squares_gdf.loc[i, 'big_square'] = True
+
+    return squares_gdf
+
+
 def plot_all_squares(m,squares_gdf):
     #filled squares
     for index,square in squares_gdf.loc[squares_gdf['filled']].iterrows():
@@ -296,7 +316,7 @@ def plot_gem(m,gem):
 
 def plot_big_square(m, squares_gdf):
     
-    big_square = cascaded_union(list(squares_gdf.loc[squares_gdf['big_square']==1]['geometry']))
+    big_square = cascaded_union(list(squares_gdf.loc[squares_gdf['big_square']]['geometry']))
     folium.Polygon([(j,i) for i,j in list(big_square.exterior.coords)],
                     weight = 1,
                     color = '#ff0000',
@@ -306,7 +326,9 @@ def plot_big_square(m, squares_gdf):
 
 def plot_goal(m):
 
-    goal_rect = convex_hull(MultiPolygon(list(squares_gdf.loc[[947, 3227, 3194, 914], 'geometry'])))
+    goal_rect = convex_hull(MultiPolygon(list(squares_gdf.loc[
+        [40634, 40667, 52067, 52034],
+        'geometry'])))
     folium.Polygon([(j,i) for i,j in list(goal_rect.exterior.coords)],
                 weight = 1,
                 color = '#00ff00',
@@ -329,17 +351,17 @@ gdf_all_points, routes_dict, new_routes = load_routes(KIND, INIT)
 print('find filled squares')
 squares_gdf = find_filled_squares2(squares_gdf,gdf_all_points)
 squares_gdf = fill_unreachables(squares_gdf, UNREACHABLES, KIND)
-# squares_gdf = create_big_square(NUM_OF_SQUARES, squares_gdf)
-m = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
+squares_gdf = create_big_square2(squares_gdf)
+m = folium.Map(location=LOCATIONS[LOC], zoom_start=10)
 m = plot_all_squares(m,squares_gdf)
 m = plot_routes(m,new_routes, routes_dict)
 
 m_all = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
 m_all = plot_all_squares(m_all,squares_gdf)
 m_all = plot_routes(m_all,routes_dict.keys(), routes_dict)
-# m = plot_big_square(m,squares_gdf)
+m = plot_big_square(m,squares_gdf)
 # m=plot_gem(m,gem_utrecht)
-# m = plot_goal(m)
+m = plot_goal(m)
 
 folium.raster_layers.WmsTileLayer(
     url="https://service.pdok.nl/cbs/gebiedsindelingen/2023/wms/v1_0?request=GetCapabilities&service=WMS",
