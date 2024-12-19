@@ -15,7 +15,10 @@ UNREACHABLES = {'cycl':{
     (4.798436, 52.098077): "Zegveld-midden",
     (4.776815, 52.096605): "Zegveld-west",
     (4.802042, 52.217659): "Vrouwenakker",
-    (4.905631, 52.274180): "Ronde Hoep"
+    (4.905631, 52.274180): "Ronde Hoep",
+    (5.321802, 52.288239): "Eemmeer",
+    (5.184407, 52.327351): "Gooimeer",
+    (4.725561, 52.243195): "Westeinderplas" 
 },
         'osca':{(5.115780, 52.060129):'Gebouw Pagelaan'},
         'hugo':{(5.115780, 52.060129):'Gebouw Pagelaan'}}

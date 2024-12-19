@@ -7,11 +7,12 @@ Created on Sun Jan 26 16:05:01 2020
 """
 
 import sys
+import ast
 import numpy as np
 import folium
 import gpxpy
 import os
-from shapely.geometry import Polygon, Point, MultiPolygon
+from shapely.geometry import Polygon, Point, MultiPolygon, LineString
 from shapely.ops import cascaded_union
 from shapely import convex_hull
 import geopandas as gpd
@@ -242,15 +243,17 @@ def create_big_square2(squares_gdf):
     big_square = squares_gdf.loc[i, "filled"].copy()
     missing = big_square.loc[~big_square].index
     #indices of all sides
-    w = np.arange(21) + big_square.index.min()
-    e = big_square.index.max() - np.arange(21)
+    w = np.arange(j) + big_square.index.min()
+    e = big_square.index.max() - np.arange(j)
     s = np.arange(w.min(), e.min()+nsq, nsq)
     n = np.arange(w.max(), e.max()+nsq, nsq)
     # which sides have missing squares
     mis_sides = []
-    for cd in ["w", "e","n", "s"]:
-        exec(f"{cd}pr = any([i in {cd} for i in missing])")
-        exec(f"if {cd}pr: mis_sides.extend(list({cd}))")
+    for cd in ["w", "e", "n", "s"]:
+        exec(f"{cd}pr = any([i in {cd} for i in missing])", globals())
+        # ast.literal_eval(f"if {cd}pr: mis_sides.extend(list({cd}))")
+        exec(f"if {cd}pr: mis_sides.extend(list({cd}))", globals())
+
     if (wpr and epr) or (npr and spr):
         # on both sides so no even number possible
         bss = j-2
@@ -275,7 +278,7 @@ def plot_all_squares(m,squares_gdf):
         folium.Polygon([(j,i) for i,j in list(square['geometry'].exterior.coords)],
                         weight = 0.3,
                         fill=True,
-                        fillOpacity=0.6,
+                        fillOpacity=0.4,
                         tooltip=str(index)).add_to(m)
     #not filled squares
     for index,square in squares_gdf.loc[~squares_gdf['filled']].iterrows():
@@ -290,7 +293,7 @@ def plot_all_squares(m,squares_gdf):
                             weight = 0.3,
                             fill=True,
                             color='red',
-                            fillOpacity=0.6,
+                            fillOpacity=0.1,
                             tooltip=str(index)).add_to(m)
     except:
         pass
@@ -301,7 +304,7 @@ def plot_all_squares(m,squares_gdf):
                             weight = 0.3,
                             fill=True,
                             color='magenta',
-                            fillOpacity=0.6,
+                            fillOpacity=0.3,
                             tooltip=str(index)).add_to(m)
     except:
         pass
@@ -327,7 +330,7 @@ def plot_big_square(m, squares_gdf):
 def plot_goal(m):
 
     goal_rect = convex_hull(MultiPolygon(list(squares_gdf.loc[
-        [40634, 40667, 52067, 52034],
+        [40632, 40669, 52069, 52032],
         'geometry'])))
     folium.Polygon([(j,i) for i,j in list(goal_rect.exterior.coords)],
                 weight = 1,
@@ -352,11 +355,12 @@ print('find filled squares')
 squares_gdf = find_filled_squares2(squares_gdf,gdf_all_points)
 squares_gdf = fill_unreachables(squares_gdf, UNREACHABLES, KIND)
 squares_gdf = create_big_square2(squares_gdf)
-m = folium.Map(location=LOCATIONS[LOC], zoom_start=10)
+m = folium.Map(location=LOCATIONS[LOC], zoom_start=9)
+
 m = plot_all_squares(m,squares_gdf)
 m = plot_routes(m,new_routes, routes_dict)
 
-m_all = folium.Map(location=LOCATIONS[LOC], zoom_start=12)
+m_all = folium.Map(location=LOCATIONS[LOC], zoom_start=9)
 m_all = plot_all_squares(m_all,squares_gdf)
 m_all = plot_routes(m_all,routes_dict.keys(), routes_dict)
 m = plot_big_square(m,squares_gdf)
